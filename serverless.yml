@@ -1,0 +1,66 @@
+service: laravel-serverless
+
+provider:
+    name: aws
+    # The AWS region in which to deploy (us-east-1 is the default)
+    region: us-east-1
+    # The stage of the application, e.g. dev, production, staging… ('dev' is the default)
+    stage: dev
+    runtime: provided.al2
+    # Specify a profile if needed
+    profile: ${YOUR_AWS_PROFILE}
+
+package:
+    # Directories to exclude from deployment
+    exclude:
+        - node_modules/**
+        - public/storage
+        - resources/assets/**
+        - storage/**
+        - tests/**
+
+functions:
+    # This function runs the Laravel website/API
+    web:
+        handler: public/index.php
+        timeout: 28 # in seconds (API Gateway has a timeout of 29 seconds)
+        layers:
+            - ${bref:layer.php-80-fpm}
+        events:
+            - http:
+                path: '/'
+                method: 'ANY'
+                authorizer: 
+                    type: COGNITO_USER_POOLS
+                    authorizerId: !Ref CognitoAuthorizer
+            - http:
+                path: '/{proxy+}'
+                method: 'ANY'
+                authorizer: 
+                    type: COGNITO_USER_POOLS
+                    authorizerId: !Ref CognitoAuthorizer
+    # This function lets us run artisan commands in Lambda
+    artisan:
+        handler: artisan
+        timeout: 120 # in seconds
+        layers:
+            - ${bref:layer.php-80} # PHP
+            - ${bref:layer.console} # The "console" layer
+
+plugins:
+    # We need to include the Bref plugin
+    - ./vendor/bref/bref
+
+resources:
+  Resources:
+    CognitoAuthorizer:
+      Type: AWS::ApiGateway::Authorizer
+      Properties:
+        AuthorizerResultTtlInSeconds: 300
+        # Change the "x-laravel-cognito-id" to any header you would like
+        IdentitySource: method.request.header.x-laravel-cognito-id
+        Name: Cognito
+        RestApiId: !Ref ApiGatewayRestApi
+        Type: COGNITO_USER_POOLS
+        ProviderARNs:
+          - ${YOUR_COGNITO_USERPOOL_ARN}
